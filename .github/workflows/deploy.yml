@@ -32,6 +32,7 @@ jobs:
             echo "Changing to project directory..."
             cd /srv/post_generator/post_generator_deploy_conf
             
+            
             # Проверка Service Token
             echo "Checking Infisical Service Token..."
             if [ -z "${{ secrets.INFISICAL_SERVICE_TOKEN }}" ]; then
