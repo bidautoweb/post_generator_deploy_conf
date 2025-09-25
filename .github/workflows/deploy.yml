@@ -16,6 +16,9 @@ jobs:
 
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
+          INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -23,26 +26,26 @@ jobs:
           port: 22
           timeout: 300s
           command_timeout: 600s
+          envs: INFISICAL_CLIENT_ID,INFISICAL_CLIENT_SECRET
           script: |
-            cd /srv/post_generator/post_generator_deploy_conf
+            set -e
 
-            # Обновление Infisical (опционально)
-            # sudo apt-get update && sudo apt-get install infisical
+            if ! command -v infisical >/dev/null 2>&1; then
+              curl -1sLf 'https://artifacts-cli.infisical.com/setup.deb.sh' | sudo -E bash
+              sudo apt-get update
+              sudo apt-get install -y infisical
+            fi
 
-            # Установка региона через переменную окружения
-            export INFISICAL_URL=https://eu.infisical.com
+            cd /srv/post_generator/post_generator_deploy_conf || exit 1
 
-            echo "Authenticating with Infisical..."
-            # Аутентификация без указания domain в параметрах
-            infisical login --method=universal-auth \
-              --client-id=${{ secrets.INFISICAL_CLIENT_ID }} \
-              --client-secret=${{ secrets.INFISICAL_CLIENT_SECRET }}
+            export INFISICAL_TOKEN=$(infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --domain=https://eu.infisical.com --silent --plain)
+            if [ -z "$INFISICAL_TOKEN" ]; then
+              echo "Infisical login failed or returned empty token"
+              exit 2
+            fi
 
-            echo "Updating repository..."
             git pull origin main
 
-            echo "Starting containers..."
-            # Используем переменную окружения для домена
-            infisical run --env=prod -- docker compose up -d --build
+            infisical run --env=prod --domain=https://eu.infisical.com -- docker compose up -d --build
 
             echo "Deployment completed successfully!"
