@@ -66,6 +66,14 @@ jobs:
             export INFISICAL_TOKEN
             echo "✅ Infisical token exported successfully"
             
+            # Диагностика перед тестированием
+            echo "=== Infisical Diagnostics ==="
+            echo "Infisical CLI version:"
+            infisical --version || echo "Failed to get version"
+            echo "Token length: ${#INFISICAL_TOKEN}"
+            echo "Token starts with: ${INFISICAL_TOKEN:0:10}..."
+            echo "Project ID: ${{ secrets.INFISICAL_PROJECT_ID }}"
+            
             # Проверка токена и доступа к проекту
             echo "Testing Infisical access..."
             set +e
@@ -76,14 +84,47 @@ jobs:
             if [ $TEST_EXIT_CODE -ne 0 ]; then
               echo "ERROR: Failed to access Infisical secrets:"
               echo "$TEST_OUTPUT"
-              echo "Project ID: ${{ secrets.INFISICAL_PROJECT_ID }}"
-              echo "Please check:"
-              echo "  1. INFISICAL_PROJECT_ID is correct"
-              echo "  2. Service account has access to 'prod' environment"
-              echo "  3. Universal auth credentials are valid"
-              exit 1
+              echo ""
+              echo "=== Troubleshooting ==="
+              echo "1. Trying to re-authenticate..."
+              
+              # Попытка повторного логина
+              set +e
+              infisical logout 2>/dev/null || true
+              REAUTH_OUTPUT=$(infisical login --method=universal-auth \
+                --client-id=${{ secrets.INFISICAL_CLIENT_ID }} \
+                --client-secret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
+                --domain https://eu.infisical.com 2>&1)
+              REAUTH_EXIT_CODE=$?
+              set -e
+              
+              if [ $REAUTH_EXIT_CODE -eq 0 ]; then
+                echo "✅ Re-authentication successful, retrying..."
+                set +e
+                TEST_OUTPUT2=$(infisical secrets --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} 2>&1)
+                TEST_EXIT_CODE2=$?
+                set -e
+                
+                if [ $TEST_EXIT_CODE2 -eq 0 ]; then
+                  echo "✅ Access test passed after re-authentication"
+                else
+                  echo "ERROR: Still failing after re-authentication:"
+                  echo "$TEST_OUTPUT2"
+                  echo ""
+                  echo "Please check:"
+                  echo "  1. INFISICAL_PROJECT_ID is correct: ${{ secrets.INFISICAL_PROJECT_ID }}"
+                  echo "  2. Service account has access to 'prod' environment"
+                  echo "  3. Try using Service Token instead of Universal Auth"
+                  exit 1
+                fi
+              else
+                echo "ERROR: Re-authentication also failed:"
+                echo "$REAUTH_OUTPUT"
+                exit 1
+              fi
+            else
+              echo "✅ Infisical access test passed"
             fi
-            echo "✅ Infisical access test passed"
             
             # Обновление кода
             echo "Pulling latest code..."
