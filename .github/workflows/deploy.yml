@@ -26,17 +26,17 @@ jobs:
           command_timeout: 600s
           script: |
             cd /srv/post_generator/post_generator_deploy_conf
-            
-            # Аутентификация с Infisical
+
+            # Аутентификация с Infisical (исправленная команда)
             infisical login --method=universal-auth \
               --client-id=${{ secrets.INFISICAL_CLIENT_ID }} \
               --client-secret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
-              --domain https://eu.infisical.com
-            
+              --domain=https://eu.infisical.com
+
             echo "Updating repository..."
             git pull origin main
-            
+
             echo "Starting containers..."
-            infisical run --env=prod -- docker compose up -d --build
-            
+            infisical run --env=prod --domain=https://eu.infisical.com -- docker compose up -d --build
+
             echo "Deployment completed successfully!"
