@@ -23,27 +23,73 @@ jobs:
           timeout: 300s
           command_timeout: 1800s
           script: |
-            set -e
+            set -e  # Останавливать выполнение при любой ошибке
+            set -o pipefail  # Останавливать выполнение при ошибке в пайпе
+            
+            echo "=== Starting deployment ==="
+            
+            # Переход в рабочую директорию
+            echo "Changing to project directory..."
             cd /srv/post_generator/post_generator_deploy_conf
+            
+            # Логин в Infisical
+            echo "Logging into Infisical..."
             INFISICAL_OUTPUT=$(infisical login --method=universal-auth \
               --client-id=${{ secrets.INFISICAL_CLIENT_ID }} \
               --client-secret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
               --silent --plain \
-              --domain https://eu.infisical.com 2>&1) || true
+              --domain https://eu.infisical.com 2>&1)
+            
+            # Проверка успешности логина
             if echo "$INFISICAL_OUTPUT" | grep -iq "error\|access denied\|usage limit"; then
-              echo "WARNING: Infisical login failed:"
+              echo "ERROR: Infisical login failed:"
               echo "$INFISICAL_OUTPUT"
-            else
-              INFISICAL_TOKEN=$(echo "$INFISICAL_OUTPUT" | tr -d '\r\n')
-              if [ -n "$INFISICAL_TOKEN" ]; then
-                export INFISICAL_TOKEN
-                echo "Infisical token exported"
-              else
-                echo "Infisical login returned empty token; continuing without exported token"
+              exit 1
+            fi
+            
+            # Экспорт токена
+            INFISICAL_TOKEN=$(echo "$INFISICAL_OUTPUT" | tr -d '\r\n')
+            if [ -z "$INFISICAL_TOKEN" ]; then
+              echo "ERROR: Infisical login returned empty token"
+              exit 1
+            fi
+            
+            export INFISICAL_TOKEN
+            echo "✅ Infisical token exported successfully"
+            
+            # Обновление кода
+            echo "Pulling latest code..."
+            git pull origin main
+            
+            # Проверка наличия docker-compose файла
+            COMPOSE_FILE="docker-compose.yml"
+            if [ ! -f "$COMPOSE_FILE" ]; then
+              COMPOSE_FILE="docker-compose.yaml"
+              if [ ! -f "$COMPOSE_FILE" ]; then
+                echo "ERROR: docker-compose file not found"
+                exit 1
               fi
             fi
-            git pull origin main
-            docker compose pull || true
-            docker compose up -d --build
+            echo "Using compose file: $COMPOSE_FILE"
+            
+            # Обновление образов Docker
+            echo "Pulling Docker images..."
+            docker compose pull
+            
+            # Запуск контейнеров
+            echo "Starting containers..."
+            infisical run --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} -- docker compose -f "$COMPOSE_FILE" up -d
+            
+            # Проверка статуса контейнеров
+            echo "Checking container status..."
             docker compose ps
-            echo "Deployment completed successfully!"
+            
+            # Проверка, что все контейнеры запущены
+            FAILED_CONTAINERS=$(docker compose ps --filter "status=exited" --format "table {{.Service}}")
+            if [ -n "$FAILED_CONTAINERS" ] && [ "$FAILED_CONTAINERS" != "SERVICE" ]; then
+              echo "ERROR: Some containers failed to start:"
+              echo "$FAILED_CONTAINERS"
+              exit 1
+            fi
+            
+            echo "✅ Deployment completed successfully!"
