@@ -43,7 +43,6 @@ jobs:
               exit 2
             fi
             git pull origin main
-            
             docker compose pull
             
             infisical run --projectId="$INFISICAL_PROJECT_ID" --token="$INFISICAL_TOKEN" --domain=https://eu.infisical.com -- docker compose up -d --build
