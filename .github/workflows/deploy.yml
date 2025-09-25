@@ -7,7 +7,6 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to VPS Server
     runs-on: ubuntu-latest
 
     steps:
@@ -22,16 +21,29 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
           timeout: 300s
-          command_timeout: 600s
+          command_timeout: 1800s
           script: |
+            set -e
             cd /srv/post_generator/post_generator_deploy_conf
-            export INFISICAL_TOKEN=$(infisical login --method=universal-auth \
+            INFISICAL_OUTPUT=$(infisical login --method=universal-auth \
               --client-id=${{ secrets.INFISICAL_CLIENT_ID }} \
               --client-secret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
               --silent --plain \
-              --domain https://eu.infisical.com)
-            echo "Updating repository..."
+              --domain https://eu.infisical.com 2>&1) || true
+            if echo "$INFISICAL_OUTPUT" | grep -iq "error\|access denied\|usage limit"; then
+              echo "WARNING: Infisical login failed:"
+              echo "$INFISICAL_OUTPUT"
+            else
+              INFISICAL_TOKEN=$(echo "$INFISICAL_OUTPUT" | tr -d '\r\n')
+              if [ -n "$INFISICAL_TOKEN" ]; then
+                export INFISICAL_TOKEN
+                echo "Infisical token exported"
+              else
+                echo "Infisical login returned empty token; continuing without exported token"
+              fi
+            fi
             git pull origin main
-            echo "Starting containers..."
-            make up
+            docker compose pull || true
+            docker compose up -d --build
+            docker compose ps
             echo "Deployment completed successfully!"
