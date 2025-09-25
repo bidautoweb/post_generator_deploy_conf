@@ -32,15 +32,24 @@ jobs:
             echo "Changing to project directory..."
             cd /srv/post_generator/post_generator_deploy_conf
             
-            # Логин в Infisical
+            # Логин в Infisical (временно отключаем set -e)
             echo "Logging into Infisical..."
+            set +e  # Отключаем останов при ошибке для этой команды
             INFISICAL_OUTPUT=$(infisical login --method=universal-auth \
               --client-id=${{ secrets.INFISICAL_CLIENT_ID }} \
               --client-secret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
               --silent --plain \
               --domain https://eu.infisical.com 2>&1)
+            INFISICAL_EXIT_CODE=$?
+            set -e  # Включаем обратно
             
             # Проверка успешности логина
+            if [ $INFISICAL_EXIT_CODE -ne 0 ]; then
+              echo "ERROR: Infisical login failed with exit code $INFISICAL_EXIT_CODE:"
+              echo "$INFISICAL_OUTPUT"
+              exit 1
+            fi
+            
             if echo "$INFISICAL_OUTPUT" | grep -iq "error\|access denied\|usage limit"; then
               echo "ERROR: Infisical login failed:"
               echo "$INFISICAL_OUTPUT"
@@ -74,7 +83,14 @@ jobs:
             
             # Обновление образов Docker
             echo "Pulling Docker images..."
+            set +e  # Временно отключаем для pull
             docker compose pull
+            PULL_EXIT_CODE=$?
+            set -e  # Включаем обратно
+            
+            if [ $PULL_EXIT_CODE -ne 0 ]; then
+              echo "WARNING: Docker pull failed (exit code $PULL_EXIT_CODE), but continuing..."
+            fi
             
             # Запуск контейнеров
             echo "Starting containers..."
