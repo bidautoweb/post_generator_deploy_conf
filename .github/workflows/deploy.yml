@@ -1,10 +1,9 @@
 name: Deploy to VPS
 
-# Триггеры для запуска workflow
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Позволяет запускать вручную из GitHub UI
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -12,33 +11,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          port: 22 # Стандартный SSH порт (можно изменить если нужно)
-          timeout: 300s # Таймаут подключения
-          command_timeout: 600s # Таймаут выполнения команд
+          port: 22
+          timeout: 300s
+          command_timeout: 600s
           script: |
-            # Переходим в директорию проекта (ЗАМЕНИТЕ НА СВОЙ ПУТЬ)
             cd /srv/post_generator/post_generator_deploy_conf
-            
             export INFISICAL_TOKEN=$(infisical login --method=universal-auth \
-            --client-id=${{INFISICAL_CLIENT_ID}} \
-            --client-secret=${{INFISICAL_CLIENT_SECRET}} \
-            --silent --plain \
-            --domain https://eu.infisical.com)
-            
-            
-            # Обновляем репозиторий
+              --client-id=${{ secrets.INFISICAL_CLIENT_ID }} \
+              --client-secret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
+              --silent --plain \
+              --domain https://eu.infisical.com)
             echo "Updating repository..."
             git pull origin main
-            
-            # Запускаем Makefile для сборки и запуска контейнеров
             echo "Starting containers..."
-            
             make up
-            
             echo "Deployment completed successfully!"
