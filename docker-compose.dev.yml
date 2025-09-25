@@ -1,0 +1,553 @@
+version: '3.8'
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  # Основные сети для каждого сервиса
+  auction_service_net:
+    driver: bridge
+  calculator_service_net:
+    driver: bridge
+  post_generator_bot_net:
+    driver: bridge
+  post_generator_service_net:
+    driver: bridge
+  
+  # Общие сети
+  rabbitmq_net:
+    driver: bridge
+  adminer_database_net:
+    driver: bridge
+  internal_net:
+    driver: bridge
+
+  monitoring:
+    driver: bridge
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  # PostgreSQL данные
+  pg_data_api:
+  pg_data_calculator:
+  pg_data_post_service:
+  pg_data_post_bot:
+  
+  # Redis данные
+  redis_api_data:
+  redis_calculator_data:
+  
+  # RabbitMQ данные
+  rabbitmq_data:
+
+  grafana-storage:
+  loki-data:
+
+# =============================================================================
+# HEALTHCHECK TEMPLATE
+# =============================================================================
+x-healthcheck: &healthcheck
+  interval: 30s
+  timeout: 10s
+  retries: 5
+  start_period: 60s
+
+# =============================================================================
+# SERVICES
+# =============================================================================
+services:
+
+  # ---------------------------------------------------------------------------
+  # AUCTION API SERVICE
+  # ---------------------------------------------------------------------------
+  auction_api_service:
+    image: ivanskrb21/bidauto_api_service:latest
+    container_name: auction_api_service
+    command: ["python", "serve_rpc.py"]
+    restart: unless-stopped
+    expose: 
+      - "50051"
+    depends_on:
+      postgres_api:
+        condition: service_healthy
+      redis_api:
+        condition: service_healthy
+    networks:
+      - auction_service_net
+      - internal_net
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "grpc_health_probe -addr=localhost:50051"]
+    environment:
+      # База данных
+      DB_HOST: postgres_api
+      DB_PORT: 5432
+      DB_USER: ${AUCTION_SERVICE_DB_USER}
+      DB_PASS: ${AUCTION_SERVICE_DB_PASS}
+      DB_NAME: ${AUCTION_SERVICE_DB_NAME}
+      PYTHONUNBUFFERED: 1
+      
+      # gRPC
+      GRPC_SERVER_PORT: 50051
+      
+      # Redis
+      REDIS_URL: redis://redis_api:6379/0
+      
+      # Другие настройки
+      AUCTION_API_KEY: ${AUCTION_API_KEY}
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
+  # ---------------------------------------------------------------------------
+  # CALCULATOR SERVICE
+  # ---------------------------------------------------------------------------
+  calculator_service:
+    image: ivanskrb21/bidauto_calculator_service:latest
+    container_name: calculator_service
+    command: ["python", "app/serve_rpc.py"]
+    restart: unless-stopped
+    expose: 
+      - "50052"
+    depends_on:
+      postgres_calculator:
+        condition: service_healthy
+      redis_calculator:
+        condition: service_healthy
+      auction_api_service:
+        condition: service_healthy
+    networks:
+      - calculator_service_net
+      - internal_net
+      - auction_service_net
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "grpc_health_probe -addr=localhost:50052"]
+    environment:
+      # База данных
+      DB_HOST: postgres_calculator
+      DB_PORT: 5432
+      DB_USER: ${CALCULATOR_DB_USER}
+      DB_PASS: ${CALCULATOR_DB_PASS}
+      DB_NAME: ${CALCULATOR_DB_NAME}
+      PYTHONUNBUFFERED: 1
+      
+      # gRPC
+      GRPC_SERVER_PORT: 50052
+      RPC_API_URL: auction_api_service:50051
+      
+      # Redis
+      REDIS_URL: redis://redis_calculator:6379/0
+      
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
+  calculator_init_db:
+    image: ivanskrb21/bidauto_calculator_service:latest
+    container_name: calculator_init_db
+    command: [ "python", "scripts/init_db.py" ]
+    environment:
+      # База данных
+      DB_HOST: postgres_calculator
+      DB_PORT: 5432
+      DB_USER: ${CALCULATOR_DB_USER}
+      DB_PASS: ${CALCULATOR_DB_PASS}
+      DB_NAME: ${CALCULATOR_DB_NAME}
+      PYTHONUNBUFFERED: 1
+
+      # gRPC
+      GRPC_SERVER_PORT: 50052
+      RPC_API_URL: auction_api_service:50051
+
+      # Redis
+      REDIS_URL: redis://redis_calculator:6379/0
+
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+    depends_on:
+      postgres_calculator:
+        condition: service_healthy
+      calculator_service:
+        condition: service_healthy
+    restart: "no"
+
+    networks:
+      - calculator_service_net
+      - internal_net
+
+  # ---------------------------------------------------------------------------
+  # POST GENERATOR BOT
+  # ---------------------------------------------------------------------------
+  post_generator_bot:
+    image: ivanskrb21/bidauto_post_generator_bot:latest
+    container_name: post_generator_bot
+    command: ["python", "app/main.py"]
+    restart: unless-stopped
+    depends_on:
+      postgres_post_bot:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - post_generator_bot_net
+      - rabbitmq_net
+    environment:
+      # База данных
+      DB_HOST: postgres_post_bot
+      DB_PORT: 5432
+      DB_USER: ${POST_GENERATOR_BOT_DB_USER}
+      DB_PASS: ${POST_GENERATOR_BOT_DB_PASS}
+      DB_NAME: ${POST_GENERATOR_BOT_DB_NAME}
+      PYTHONUNBUFFERED: 1
+      
+      # Telegram
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHANNEL_ID: ${TELEGRAM_CHANNEL_ID}
+      SECRET_BOT_POST_GENERATOR_KEY: ${SECRET_BOT_POST_GENERATOR_KEY}
+      
+      # RabbitMQ
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
+      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
+      RABBITMQ_QUEUE_NAME: ${GENERATOR_BOT_QUEUE_NAME}
+      
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
+  # ---------------------------------------------------------------------------
+  # POST GENERATOR BOT CONSUMER
+  # ---------------------------------------------------------------------------
+  post_generator_bot_consumer:
+    image: ivanskrb21/bidauto_post_generator_bot:latest
+    container_name: post_generator_bot_consumer
+    command: ["python", "start_consuming.py"]
+    restart: unless-stopped
+    depends_on:
+      postgres_post_bot:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - post_generator_bot_net
+      - rabbitmq_net
+    environment:
+      # База данных
+      DB_HOST: postgres_post_bot
+      DB_PORT: 5432
+      DB_USER: ${POST_GENERATOR_BOT_DB_USER}
+      DB_PASS: ${POST_GENERATOR_BOT_DB_PASS}
+      DB_NAME: ${POST_GENERATOR_BOT_DB_NAME}
+      PYTHONUNBUFFERED: 1
+      
+      # Telegram
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHANNEL_ID: ${TELEGRAM_CHANNEL_ID}
+      SECRET_BOT_POST_GENERATOR_KEY: ${SECRET_BOT_POST_GENERATOR_KEY}
+      
+      # RabbitMQ
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
+      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
+      RABBITMQ_QUEUE_NAME: ${GENERATOR_BOT_QUEUE_NAME}
+      
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
+  # ---------------------------------------------------------------------------
+  # AI CHATBOT SERVICE
+  # ---------------------------------------------------------------------------
+  ai_chatbot_service:
+    image: ivanskrb21/bidauto_ai_chatbot_service:latest
+    container_name: ai_chatbot_service
+    command: ["python", "app/main.py"]
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - rabbitmq_net
+    environment:
+      # AI настройки
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      
+      # RabbitMQ
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
+      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
+      RABBITMQ_QUEUE_NAME: ${AI_CHAT_BOT_QUEUE_NAME}
+      PYTHONUNBUFFERED: 1
+      
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
+  # ---------------------------------------------------------------------------
+  # POST GENERATOR SERVICE
+  # ---------------------------------------------------------------------------
+  post_generator_service:
+    image: ivanskrb21/bidauto_post_generator_service:latest
+    container_name: post_generator_service
+    command: ["python", "main.py"]
+    restart: unless-stopped
+    depends_on:
+      postgres_post_service:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auction_api_service:
+        condition: service_healthy
+    networks:
+      - post_generator_service_net
+      - rabbitmq_net
+      - internal_net
+    environment:
+      # База данных
+      DB_HOST: postgres_post_service
+      DB_PORT: 5432
+      DB_USER: ${POST_GENERATOR_DB_USER}
+      DB_PASS: ${POST_GENERATOR_DB_PASS}
+      DB_NAME: ${POST_GENERATOR_DB_NAME}
+      PYTHONUNBUFFERED: 1
+      
+      # RabbitMQ
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
+      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
+      RABBITMQ_QUEUE_NAME: ${POST_GENERATOR_SERVICE_QUEUE_NAME}
+      
+      # gRPC
+      RPC_AUCTION_API_URL: auction_api_service:50051
+      RCP_CALCULATOR_URL: calculator_service:50052
+      RPC_CHAT_BOT_URL: ${RPC_CHAT_BOT_URL}
+      
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
+  # =============================================================================
+  # DATABASES (PostgreSQL)
+  # =============================================================================
+
+  # ---------------------------------------------------------------------------
+  # AUCTION API DATABASE
+  # ---------------------------------------------------------------------------
+  postgres_api:
+    image: postgres:17.5
+    container_name: postgres_api
+    restart: unless-stopped
+    volumes:
+      - pg_data_api:/var/lib/postgresql/data
+    networks:
+      - auction_service_net
+      - adminer_database_net
+    environment:
+      POSTGRES_USER: ${AUCTION_SERVICE_DB_USER}
+      POSTGRES_PASSWORD: ${AUCTION_SERVICE_DB_PASS}
+      POSTGRES_DB: ${AUCTION_SERVICE_DB_NAME}
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "pg_isready -U ${AUCTION_SERVICE_DB_USER} -d ${AUCTION_SERVICE_DB_NAME}"]
+
+  # ---------------------------------------------------------------------------
+  # CALCULATOR DATABASE
+  # ---------------------------------------------------------------------------
+  postgres_calculator:
+    image: postgres:17.5
+    container_name: postgres_calculator
+    restart: unless-stopped
+    volumes:
+      - pg_data_calculator:/var/lib/postgresql/data
+    networks:
+      - calculator_service_net
+      - adminer_database_net
+    environment:
+      POSTGRES_USER: ${CALCULATOR_DB_USER}
+      POSTGRES_PASSWORD: ${CALCULATOR_DB_PASS}
+      POSTGRES_DB: ${CALCULATOR_DB_NAME}
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "pg_isready -U ${CALCULATOR_DB_USER} -d ${CALCULATOR_DB_NAME}"]
+
+  # ---------------------------------------------------------------------------
+  # POST GENERATOR BOT DATABASE
+  # ---------------------------------------------------------------------------
+  postgres_post_bot:
+    image: postgres:17.5
+    container_name: postgres_post_bot
+    restart: unless-stopped
+    volumes:
+      - pg_data_post_bot:/var/lib/postgresql/data
+    networks:
+      - post_generator_bot_net
+      - adminer_database_net
+    environment:
+      POSTGRES_USER: ${POST_GENERATOR_BOT_DB_USER}
+      POSTGRES_PASSWORD: ${POST_GENERATOR_BOT_DB_PASS}
+      POSTGRES_DB: ${POST_GENERATOR_BOT_DB_NAME}
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "pg_isready -U ${POST_GENERATOR_BOT_DB_USER} -d ${POST_GENERATOR_BOT_DB_NAME}"]
+
+  # ---------------------------------------------------------------------------
+  # POST GENERATOR SERVICE DATABASE
+  # ---------------------------------------------------------------------------
+  postgres_post_service:
+    image: postgres:17.5
+    container_name: postgres_post_service
+    restart: unless-stopped
+    volumes:
+      - pg_data_post_service:/var/lib/postgresql/data
+    networks:
+      - post_generator_service_net
+      - adminer_database_net
+    environment:
+      POSTGRES_USER: ${POST_GENERATOR_DB_USER}
+      POSTGRES_PASSWORD: ${POST_GENERATOR_DB_PASS}
+      POSTGRES_DB: ${POST_GENERATOR_DB_NAME}
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "pg_isready -U ${POST_GENERATOR_DB_USER} -d ${POST_GENERATOR_DB_NAME}"]
+
+  # =============================================================================
+  # CACHE (Redis)
+  # =============================================================================
+
+  # ---------------------------------------------------------------------------
+  # API REDIS
+  # ---------------------------------------------------------------------------
+  redis_api:
+    image: redis:7-alpine
+    container_name: redis_api
+    restart: unless-stopped
+    expose: 
+      - "6379"
+    volumes:
+      - redis_api_data:/data
+    networks:
+      - auction_service_net
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+
+  # ---------------------------------------------------------------------------
+  # CALCULATOR REDIS
+  # ---------------------------------------------------------------------------
+  redis_calculator:
+    image: redis:7-alpine
+    container_name: redis_calculator
+    restart: unless-stopped
+    expose: 
+      - "6379"
+    volumes:
+      - redis_calculator_data:/data
+    networks:
+      - calculator_service_net
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+
+  # =============================================================================
+  # MESSAGING (RabbitMQ)
+  # =============================================================================
+  
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    networks:
+      - rabbitmq_net
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: /
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+
+  # =============================================================================
+  # ADMIN TOOLS
+  # =============================================================================
+  
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    networks:
+      - adminer_database_net
+    depends_on:
+      - postgres_api
+      - postgres_calculator
+      - postgres_post_bot
+      - postgres_post_service
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres_api
+      ADMINER_DESIGN: pepa-linha-dark
+      ADMINER_PLUGINS: tables-filter tinymce
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080 || exit 1"]
+
+
+
+
+  # Loki - Centralized log storage and querying
+  loki:
+    image: grafana/loki:3.5.3
+    container_name: loki
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # Promtail - Log collection agent (collects from all containers)
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    volumes:
+      - /var/log:/var/log:ro                                    # System logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro           # Docker API access
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro # Container logs
+      - ./promtail-config.yaml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - monitoring
+    depends_on:
+      - loki
+    restart: unless-stopped
+    user: root  # Required for accessing Docker logs
+
+  # ----------------------------------------------------------------------
+  # 6.2 MONITORING DASHBOARD
+  # ----------------------------------------------------------------------
+
+  # Grafana - Visualization and alerting platform
+  grafana:
+    image: grafana/grafana:12.1.1
+    container_name: grafana
+    environment:
+      # Authentication settings
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      # Logging configuration
+      - GF_LOG_LEVEL=info
+    ports:
+      - "3000:3000"  # Host port 3000 maps to container port 3000
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    networks:
+      - monitoring    # Access to Loki for data source
+    depends_on:
+      - loki
+    restart: unless-stopped
