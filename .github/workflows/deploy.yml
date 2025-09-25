@@ -25,12 +25,20 @@ jobs:
             # Переходим в директорию проекта (ЗАМЕНИТЕ НА СВОЙ ПУТЬ)
             cd /srv/post_generator/post_generator_deploy_conf
             
+            export INFISICAL_TOKEN=$(infisical login --method=universal-auth \
+            --client-id=${{INFISICAL_CLIENT_ID}} \
+            --client-secret=${{INFISICAL_CLIENT_SECRET}} \
+            --silent --plain \
+            --domain https://eu.infisical.com)
+            
+            
             # Обновляем репозиторий
             echo "Updating repository..."
             git pull origin main
             
             # Запускаем Makefile для сборки и запуска контейнеров
             echo "Starting containers..."
-            make
+            
+            make up
             
             echo "Deployment completed successfully!"
