@@ -5,8 +5,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+
 jobs:
   deploy:
+    name: Deploy to VPS Server
     runs-on: ubuntu-latest
 
     steps:
@@ -21,95 +23,20 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
           timeout: 300s
-          command_timeout: 1800s
+          command_timeout: 600s
           script: |
-            set -e
-            set -o pipefail
-            
-            echo "=== Starting deployment ==="
-            
-            # Переход в рабочую директорию
-            echo "Changing to project directory..."
             cd /srv/post_generator/post_generator_deploy_conf
             
+            # Аутентификация с Infisical
+            infisical login --method=universal-auth \
+              --client-id=${{ secrets.INFISICAL_CLIENT_ID }} \
+              --client-secret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
+              --domain https://eu.infisical.com
             
-            # Проверка Service Token
-            echo "Checking Infisical Service Token..."
-            if [ -z "${{ secrets.INFISICAL_SERVICE_TOKEN }}" ]; then
-              echo "ERROR: INFISICAL_SERVICE_TOKEN not found in GitHub secrets"
-              echo "Create Service Token in Infisical Console and add to GitHub secrets"
-              exit 1
-            fi
-            
-            # Экспорт Service Token
-            export INFISICAL_TOKEN=${{ secrets.INFISICAL_SERVICE_TOKEN }}
-            echo "✅ Service token exported"
-            
-            # Тест доступа
-            echo "Testing Infisical access with Service Token..."
-            set +e
-            TEST_OUTPUT=$(infisical secrets --env=prod 2>&1)
-            TEST_EXIT_CODE=$?
-            set -e
-            
-            if [ $TEST_EXIT_CODE -ne 0 ]; then
-              echo "ERROR: Failed to access secrets with Service Token:"
-              echo "$TEST_OUTPUT"
-              echo "Please check Service Token validity and permissions"
-              exit 1
-            fi
-            echo "✅ Service Token access confirmed"
-            
-            # Обновление кода
-            echo "Pulling latest code..."
+            echo "Updating repository..."
             git pull origin main
             
-            # Проверка наличия docker-compose файла
-            COMPOSE_FILE="docker-compose.yml"
-            if [ ! -f "$COMPOSE_FILE" ]; then
-              COMPOSE_FILE="docker-compose.yaml"
-              if [ ! -f "$COMPOSE_FILE" ]; then
-                echo "ERROR: docker-compose file not found"
-                exit 1
-              fi
-            fi
-            echo "Using compose file: $COMPOSE_FILE"
-            
-            # Обновление образов Docker
-            echo "Pulling Docker images..."
-            set +e
-            docker compose pull
-            PULL_EXIT_CODE=$?
-            set -e
-            
-            if [ $PULL_EXIT_CODE -ne 0 ]; then
-              echo "WARNING: Docker pull failed, but continuing..."
-            fi
-            
-            # Запуск контейнеров с Service Token
             echo "Starting containers..."
-            set +e
-            INFISICAL_RUN_OUTPUT=$(infisical run --env=prod -- docker compose -f "$COMPOSE_FILE" up -d 2>&1)
-            INFISICAL_RUN_EXIT_CODE=$?
-            set -e
+            infisical run --env=prod -- docker compose up -d --build
             
-            if [ $INFISICAL_RUN_EXIT_CODE -ne 0 ]; then
-              echo "ERROR: Failed to start containers:"
-              echo "$INFISICAL_RUN_OUTPUT"
-              exit 1
-            fi
-            echo "✅ Containers started successfully"
-            
-            # Проверка статуса контейнеров
-            echo "Checking container status..."
-            docker compose ps
-            
-            # Проверка, что все контейнеры запущены
-            FAILED_CONTAINERS=$(docker compose ps --filter "status=exited" --format "table {{.Service}}")
-            if [ -n "$FAILED_CONTAINERS" ] && [ "$FAILED_CONTAINERS" != "SERVICE" ]; then
-              echo "ERROR: Some containers failed to start:"
-              echo "$FAILED_CONTAINERS"
-              exit 1
-            fi
-            
-            echo "✅ Deployment completed successfully!"
+            echo "Deployment completed successfully!"
