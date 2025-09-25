@@ -66,6 +66,25 @@ jobs:
             export INFISICAL_TOKEN
             echo "✅ Infisical token exported successfully"
             
+            # Проверка токена и доступа к проекту
+            echo "Testing Infisical access..."
+            set +e
+            TEST_OUTPUT=$(infisical secrets --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} 2>&1)
+            TEST_EXIT_CODE=$?
+            set -e
+            
+            if [ $TEST_EXIT_CODE -ne 0 ]; then
+              echo "ERROR: Failed to access Infisical secrets:"
+              echo "$TEST_OUTPUT"
+              echo "Project ID: ${{ secrets.INFISICAL_PROJECT_ID }}"
+              echo "Please check:"
+              echo "  1. INFISICAL_PROJECT_ID is correct"
+              echo "  2. Service account has access to 'prod' environment"
+              echo "  3. Universal auth credentials are valid"
+              exit 1
+            fi
+            echo "✅ Infisical access test passed"
+            
             # Обновление кода
             echo "Pulling latest code..."
             git pull origin main
@@ -94,7 +113,22 @@ jobs:
             
             # Запуск контейнеров
             echo "Starting containers..."
-            infisical run --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} -- docker compose -f "$COMPOSE_FILE" up -d
+            set +e
+            INFISICAL_RUN_OUTPUT=$(infisical run --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} -- docker compose -f "$COMPOSE_FILE" up -d 2>&1)
+            INFISICAL_RUN_EXIT_CODE=$?
+            set -e
+            
+            if [ $INFISICAL_RUN_EXIT_CODE -ne 0 ]; then
+              echo "ERROR: Failed to start containers with Infisical:"
+              echo "$INFISICAL_RUN_OUTPUT"
+              echo ""
+              echo "Troubleshooting steps:"
+              echo "  1. Check if INFISICAL_PROJECT_ID is correct: ${{ secrets.INFISICAL_PROJECT_ID }}"
+              echo "  2. Verify service account has access to 'prod' environment"
+              echo "  3. Check if all required secrets exist in Infisical"
+              exit 1
+            fi
+            echo "✅ Containers started successfully"
             
             # Проверка статуса контейнеров
             echo "Checking container status..."
