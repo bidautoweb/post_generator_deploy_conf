@@ -23,8 +23,8 @@ jobs:
           timeout: 300s
           command_timeout: 1800s
           script: |
-            set -e  # Останавливать выполнение при любой ошибке
-            set -o pipefail  # Останавливать выполнение при ошибке в пайпе
+            set -e
+            set -o pipefail
             
             echo "=== Starting deployment ==="
             
@@ -32,99 +32,32 @@ jobs:
             echo "Changing to project directory..."
             cd /srv/post_generator/post_generator_deploy_conf
             
-            # Логин в Infisical (временно отключаем set -e)
-            echo "Logging into Infisical..."
-            set +e  # Отключаем останов при ошибке для этой команды
-            INFISICAL_OUTPUT=$(infisical login --method=universal-auth \
-              --client-id=${{ secrets.INFISICAL_CLIENT_ID }} \
-              --client-secret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
-              --silent --plain \
-              --domain https://eu.infisical.com 2>&1)
-            INFISICAL_EXIT_CODE=$?
-            set -e  # Включаем обратно
-            
-            # Проверка успешности логина
-            if [ $INFISICAL_EXIT_CODE -ne 0 ]; then
-              echo "ERROR: Infisical login failed with exit code $INFISICAL_EXIT_CODE:"
-              echo "$INFISICAL_OUTPUT"
+            # Проверка Service Token
+            echo "Checking Infisical Service Token..."
+            if [ -z "${{ secrets.INFISICAL_SERVICE_TOKEN }}" ]; then
+              echo "ERROR: INFISICAL_SERVICE_TOKEN not found in GitHub secrets"
+              echo "Create Service Token in Infisical Console and add to GitHub secrets"
               exit 1
             fi
             
-            if echo "$INFISICAL_OUTPUT" | grep -iq "error\|access denied\|usage limit"; then
-              echo "ERROR: Infisical login failed:"
-              echo "$INFISICAL_OUTPUT"
-              exit 1
-            fi
+            # Экспорт Service Token
+            export INFISICAL_TOKEN=${{ secrets.INFISICAL_SERVICE_TOKEN }}
+            echo "✅ Service token exported"
             
-            # Экспорт токена
-            INFISICAL_TOKEN=$(echo "$INFISICAL_OUTPUT" | tr -d '\r\n')
-            if [ -z "$INFISICAL_TOKEN" ]; then
-              echo "ERROR: Infisical login returned empty token"
-              exit 1
-            fi
-            
-            export INFISICAL_TOKEN
-            echo "✅ Infisical token exported successfully"
-            
-            # Диагностика перед тестированием
-            echo "=== Infisical Diagnostics ==="
-            echo "Infisical CLI version:"
-            infisical --version || echo "Failed to get version"
-            echo "Token length: ${#INFISICAL_TOKEN}"
-            echo "Token starts with: ${INFISICAL_TOKEN:0:10}..."
-            echo "Project ID: ${{ secrets.INFISICAL_PROJECT_ID }}"
-            
-            # Проверка токена и доступа к проекту
-            echo "Testing Infisical access..."
+            # Тест доступа
+            echo "Testing Infisical access with Service Token..."
             set +e
-            TEST_OUTPUT=$(infisical secrets --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} 2>&1)
+            TEST_OUTPUT=$(infisical secrets --env=prod 2>&1)
             TEST_EXIT_CODE=$?
             set -e
             
             if [ $TEST_EXIT_CODE -ne 0 ]; then
-              echo "ERROR: Failed to access Infisical secrets:"
+              echo "ERROR: Failed to access secrets with Service Token:"
               echo "$TEST_OUTPUT"
-              echo ""
-              echo "=== Troubleshooting ==="
-              echo "1. Trying to re-authenticate..."
-              
-              # Попытка повторного логина
-              set +e
-              infisical logout 2>/dev/null || true
-              REAUTH_OUTPUT=$(infisical login --method=universal-auth \
-                --client-id=${{ secrets.INFISICAL_CLIENT_ID }} \
-                --client-secret=${{ secrets.INFISICAL_CLIENT_SECRET }} \
-                --domain https://eu.infisical.com 2>&1)
-              REAUTH_EXIT_CODE=$?
-              set -e
-              
-              if [ $REAUTH_EXIT_CODE -eq 0 ]; then
-                echo "✅ Re-authentication successful, retrying..."
-                set +e
-                TEST_OUTPUT2=$(infisical secrets --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} 2>&1)
-                TEST_EXIT_CODE2=$?
-                set -e
-                
-                if [ $TEST_EXIT_CODE2 -eq 0 ]; then
-                  echo "✅ Access test passed after re-authentication"
-                else
-                  echo "ERROR: Still failing after re-authentication:"
-                  echo "$TEST_OUTPUT2"
-                  echo ""
-                  echo "Please check:"
-                  echo "  1. INFISICAL_PROJECT_ID is correct: ${{ secrets.INFISICAL_PROJECT_ID }}"
-                  echo "  2. Service account has access to 'prod' environment"
-                  echo "  3. Try using Service Token instead of Universal Auth"
-                  exit 1
-                fi
-              else
-                echo "ERROR: Re-authentication also failed:"
-                echo "$REAUTH_OUTPUT"
-                exit 1
-              fi
-            else
-              echo "✅ Infisical access test passed"
+              echo "Please check Service Token validity and permissions"
+              exit 1
             fi
+            echo "✅ Service Token access confirmed"
             
             # Обновление кода
             echo "Pulling latest code..."
@@ -143,30 +76,25 @@ jobs:
             
             # Обновление образов Docker
             echo "Pulling Docker images..."
-            set +e  # Временно отключаем для pull
+            set +e
             docker compose pull
             PULL_EXIT_CODE=$?
-            set -e  # Включаем обратно
+            set -e
             
             if [ $PULL_EXIT_CODE -ne 0 ]; then
-              echo "WARNING: Docker pull failed (exit code $PULL_EXIT_CODE), but continuing..."
+              echo "WARNING: Docker pull failed, but continuing..."
             fi
             
-            # Запуск контейнеров
+            # Запуск контейнеров с Service Token
             echo "Starting containers..."
             set +e
-            INFISICAL_RUN_OUTPUT=$(infisical run --env=prod --projectId=${{ secrets.INFISICAL_PROJECT_ID }} -- docker compose -f "$COMPOSE_FILE" up -d 2>&1)
+            INFISICAL_RUN_OUTPUT=$(infisical run --env=prod -- docker compose -f "$COMPOSE_FILE" up -d 2>&1)
             INFISICAL_RUN_EXIT_CODE=$?
             set -e
             
             if [ $INFISICAL_RUN_EXIT_CODE -ne 0 ]; then
-              echo "ERROR: Failed to start containers with Infisical:"
+              echo "ERROR: Failed to start containers:"
               echo "$INFISICAL_RUN_OUTPUT"
-              echo ""
-              echo "Troubleshooting steps:"
-              echo "  1. Check if INFISICAL_PROJECT_ID is correct: ${{ secrets.INFISICAL_PROJECT_ID }}"
-              echo "  2. Verify service account has access to 'prod' environment"
-              echo "  3. Check if all required secrets exist in Infisical"
               exit 1
             fi
             echo "✅ Containers started successfully"
