@@ -496,10 +496,6 @@ services:
       <<: *healthcheck
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080 || exit 1"]
 
-
-
-
-  # Loki - Centralized log storage and querying
   loki:
     image: grafana/loki:3.5.3
     container_name: loki
