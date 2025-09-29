@@ -45,5 +45,5 @@ jobs:
             git pull origin main
             docker compose pull
             
-            infisical run --projectId="$INFISICAL_PROJECT_ID" --token="$INFISICAL_TOKEN" --domain=https://eu.infisical.com -- docker compose up -d --build
+            infisical run --projectId="$INFISICAL_PROJECT_ID" --env=prod --token="$INFISICAL_TOKEN" --domain=https://eu.infisical.com -- docker compose up -d --build
             echo "Deployment completed successfully!"
