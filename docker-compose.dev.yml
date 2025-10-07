@@ -194,6 +194,7 @@ services:
     networks:
       - post_generator_bot_net
       - rabbitmq_net
+      - internal_net
     environment:
       # База данных
       DB_HOST: postgres_post_bot
@@ -212,6 +213,8 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
       RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
       RABBITMQ_QUEUE_NAME: ${GENERATOR_BOT_QUEUE_NAME}
+
+      RPC_AUCTION_API_URL: auction_api_service:50051
       
       # Другие настройки
       ENVIRONMENT: ${ENVIRONMENT}
@@ -233,6 +236,7 @@ services:
     networks:
       - post_generator_bot_net
       - rabbitmq_net
+      - internal_net
     environment:
       # База данных
       DB_HOST: postgres_post_bot
@@ -246,6 +250,7 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHANNEL_ID: ${TELEGRAM_CHANNEL_ID}
       SECRET_BOT_POST_GENERATOR_KEY: ${SECRET_BOT_POST_GENERATOR_KEY}
+      RPC_AUCTION_API_URL: auction_api_service:50051
       
       # RabbitMQ
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
