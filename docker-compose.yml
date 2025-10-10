@@ -284,6 +284,8 @@ services:
       RABBITMQ_QUEUE_NAME: ${AI_CHAT_BOT_QUEUE_NAME}
       PYTHONUNBUFFERED: 1
 
+
+
       # Другие настройки
       ENVIRONMENT: ${ENVIRONMENT}
       DEBUG: ${DEBUG}
@@ -315,6 +317,8 @@ services:
       DB_PASS: ${POST_GENERATOR_DB_PASS}
       DB_NAME: ${POST_GENERATOR_DB_NAME}
       PYTHONUNBUFFERED: 1
+
+      OPENAI_API_KEY:
 
       # RabbitMQ
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
