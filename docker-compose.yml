@@ -318,7 +318,7 @@ services:
       DB_NAME: ${POST_GENERATOR_DB_NAME}
       PYTHONUNBUFFERED: 1
 
-      OPENAI_API_KEY:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
 
       # RabbitMQ
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
