@@ -232,7 +232,7 @@ services:
 
       # Другие настройки
       ENVIRONMENT: ${ENVIRONMENT}
-      DEBUG: false
+      DEBUG: ${DEBUG}
 
   # ---------------------------------------------------------------------------
   # POST GENERATOR BOT CONSUMER (with hot reload)
@@ -278,7 +278,7 @@ services:
 
       # Другие настройки
       ENVIRONMENT: ${ENVIRONMENT}
-      DEBUG: false
+      DEBUG: ${DEBUG}
 
   # ---------------------------------------------------------------------------
   # AI CHATBOT SERVICE (with hot reload)
@@ -359,7 +359,7 @@ services:
 
       # Другие настройки
       ENVIRONMENT: ${ENVIRONMENT}
-      DEBUG: false
+      DEBUG: ${DEBUG}
 
   # =============================================================================
   # DATABASES (PostgreSQL)
