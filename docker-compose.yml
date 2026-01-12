@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 # =============================================================================
 # NETWORKS
@@ -58,6 +58,33 @@ x-healthcheck: &healthcheck
 # SERVICES
 # =============================================================================
 services:
+  # ---------------------------------------------------------------------------
+  # API GATEWAY (Nginx)
+  # ---------------------------------------------------------------------------
+  api_gateway:
+    image: ivanskrb21/bidauto_api_gateway:latest
+    container_name: api_gateway
+    restart: unless-stopped
+    ports:
+      - "8080:80" # Main API Gateway port
+    depends_on:
+      - post_generator_bot_api
+      - post_generator_service_api
+    networks:
+      - internal_net
+      - post_generator_bot_net
+      - post_generator_service_net
+    healthcheck:
+      <<: *healthcheck
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health",
+        ]
 
   # ---------------------------------------------------------------------------
   # AUCTION API SERVICE
@@ -147,7 +174,7 @@ services:
   calculator_init_db:
     image: ivanskrb21/bidauto_calculator_service:latest
     container_name: calculator_init_db
-    command: [ "python", "scripts/init_db.py" ]
+    command: ["python", "scripts/init_db.py"]
     environment:
       # База данных
       DB_HOST: postgres_calculator
@@ -269,8 +296,7 @@ services:
     container_name: post_generator_bot_api
     command: ["python", "start_api_server.py"]
     restart: unless-stopped
-    ports:
-      - "8000:8000"  # Expose API server port
+    # Port removed - only accessible through API Gateway
     depends_on:
       postgres_post_bot:
         condition: service_healthy
@@ -316,8 +342,6 @@ services:
       RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
       RABBITMQ_QUEUE_NAME: ${AI_CHAT_BOT_QUEUE_NAME}
       PYTHONUNBUFFERED: 1
-
-
 
       # Другие настройки
       ENVIRONMENT: ${ENVIRONMENT}
@@ -367,6 +391,48 @@ services:
       ENVIRONMENT: ${ENVIRONMENT}
       DEBUG: ${DEBUG}
 
+  # ---------------------------------------------------------------------------
+  # POST GENERATOR SERVICE API SERVER
+  # ---------------------------------------------------------------------------
+  post_generator_service_api:
+    image: ivanskrb21/bidauto_post_generator_service:latest
+    container_name: post_generator_service_api
+    command: ["python", "start_api_server.py"]
+    restart: unless-stopped
+    # Port removed - only accessible through API Gateway
+    depends_on:
+      postgres_post_service:
+        condition: service_healthy
+    networks:
+      - post_generator_service_net
+      - internal_net
+      - rabbitmq_net # Add RabbitMQ network access
+    environment:
+      # База данных
+      DB_HOST: postgres_post_service
+      DB_PORT: 5432
+      DB_USER: ${POST_GENERATOR_DB_USER}
+      DB_PASS: ${POST_GENERATOR_DB_PASS}
+      DB_NAME: ${POST_GENERATOR_DB_NAME}
+      PYTHONUNBUFFERED: 1
+
+      # Service URLs
+      POST_GENERATOR_BOT_URL: http://post_generator_bot_api:8000
+
+      # RabbitMQ (add missing configuration)
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
+      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
+      RABBITMQ_QUEUE_NAME: ${POST_GENERATOR_SERVICE_QUEUE_NAME}
+
+      # gRPC
+      RPC_AUCTION_API_URL: auction_api_service:50051
+      RCP_CALCULATOR_URL: calculator_service:50052
+      RPC_CHAT_BOT_URL: ${RPC_CHAT_BOT_URL}
+
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
   # =============================================================================
   # DATABASES (PostgreSQL)
   # =============================================================================
@@ -389,7 +455,11 @@ services:
       POSTGRES_DB: ${AUCTION_SERVICE_DB_NAME}
     healthcheck:
       <<: *healthcheck
-      test: ["CMD-SHELL", "pg_isready -U ${AUCTION_SERVICE_DB_USER} -d ${AUCTION_SERVICE_DB_NAME}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${AUCTION_SERVICE_DB_USER} -d ${AUCTION_SERVICE_DB_NAME}",
+        ]
 
   # ---------------------------------------------------------------------------
   # CALCULATOR DATABASE
@@ -409,7 +479,11 @@ services:
       POSTGRES_DB: ${CALCULATOR_DB_NAME}
     healthcheck:
       <<: *healthcheck
-      test: ["CMD-SHELL", "pg_isready -U ${CALCULATOR_DB_USER} -d ${CALCULATOR_DB_NAME}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${CALCULATOR_DB_USER} -d ${CALCULATOR_DB_NAME}",
+        ]
 
   # ---------------------------------------------------------------------------
   # POST GENERATOR BOT DATABASE
@@ -429,7 +503,11 @@ services:
       POSTGRES_DB: ${POST_GENERATOR_BOT_DB_NAME}
     healthcheck:
       <<: *healthcheck
-      test: ["CMD-SHELL", "pg_isready -U ${POST_GENERATOR_BOT_DB_USER} -d ${POST_GENERATOR_BOT_DB_NAME}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POST_GENERATOR_BOT_DB_USER} -d ${POST_GENERATOR_BOT_DB_NAME}",
+        ]
 
   # ---------------------------------------------------------------------------
   # POST GENERATOR SERVICE DATABASE
@@ -449,7 +527,11 @@ services:
       POSTGRES_DB: ${POST_GENERATOR_DB_NAME}
     healthcheck:
       <<: *healthcheck
-      test: ["CMD-SHELL", "pg_isready -U ${POST_GENERATOR_DB_USER} -d ${POST_GENERATOR_DB_NAME}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POST_GENERATOR_DB_USER} -d ${POST_GENERATOR_DB_NAME}",
+        ]
 
   # =============================================================================
   # CACHE (Redis)
@@ -536,10 +618,11 @@ services:
       ADMINER_PLUGINS: tables-filter tinymce
     healthcheck:
       <<: *healthcheck
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080 || exit 1"]
-
-
-
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:8080 || exit 1",
+        ]
 
   # Loki - Centralized log storage and querying
   loki:
@@ -558,8 +641,8 @@ services:
     image: grafana/promtail:latest
     container_name: promtail
     volumes:
-      - /var/log:/var/log:ro                                    # System logs
-      - /var/run/docker.sock:/var/run/docker.sock:ro           # Docker API access
+      - /var/log:/var/log:ro # System logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Docker API access
       - /var/lib/docker/containers:/var/lib/docker/containers:ro # Container logs
       - ./promtail-config.yaml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
@@ -568,13 +651,11 @@ services:
     depends_on:
       - loki
     restart: unless-stopped
-    user: root  # Required for accessing Docker logs
+    user: root # Required for accessing Docker logs
 
   # ----------------------------------------------------------------------
   # 6.2 MONITORING DASHBOARD
   # ----------------------------------------------------------------------
-
-
 
   # Grafana - Visualization and alerting platform
   grafana:
@@ -587,11 +668,11 @@ services:
       # Logging configuration
       - GF_LOG_LEVEL=info
     ports:
-      - "3000:3000"  # Host port 3000 maps to container port 3000
+      - "3000:3000" # Host port 3000 maps to container port 3000
     volumes:
       - grafana-storage:/var/lib/grafana
     networks:
-      - monitoring    # Access to Loki for data source
+      - monitoring # Access to Loki for data source
     depends_on:
       - loki
     restart: unless-stopped

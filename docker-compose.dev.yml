@@ -62,7 +62,7 @@ services:
   api_gateway:
     build:
       context: ../api_gateway
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: api_gateway_dev
     restart: unless-stopped
     ports:
@@ -419,6 +419,7 @@ services:
     networks:
       - post_generator_service_net
       - internal_net
+      - rabbitmq_net # Add RabbitMQ network access
     environment:
       # База данных
       DB_HOST: postgres_post_service
@@ -430,6 +431,11 @@ services:
 
       # Service URLs
       POST_GENERATOR_BOT_URL: http://post_generator_bot_api:8000
+
+      # RabbitMQ (add missing configuration)
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
+      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
+      RABBITMQ_QUEUE_NAME: ${POST_GENERATOR_SERVICE_QUEUE_NAME}
 
       # gRPC
       RPC_AUCTION_API_URL: auction_api_service:50051
