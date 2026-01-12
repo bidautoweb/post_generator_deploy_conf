@@ -57,6 +57,36 @@ x-healthcheck: &healthcheck
 # =============================================================================
 services:
   # ---------------------------------------------------------------------------
+  # API GATEWAY (Nginx)
+  # ---------------------------------------------------------------------------
+  api_gateway:
+    build:
+      context: ../api_gateway
+      dockerfile: Dockerfile
+    container_name: api_gateway_dev
+    restart: unless-stopped
+    ports:
+      - "8080:80" # Main API Gateway port
+    depends_on:
+      - post_generator_bot_api
+      - post_generator_service_api
+    networks:
+      - internal_net
+      - post_generator_bot_net
+      - post_generator_service_net
+    healthcheck:
+      <<: *healthcheck
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health",
+        ]
+
+  # ---------------------------------------------------------------------------
   # AUCTION API SERVICE (with hot reload)
   # ---------------------------------------------------------------------------
   auction_api_service:
@@ -293,8 +323,7 @@ services:
     volumes:
       # Mount source code for hot reload
       - ../post_generator_bot:/app
-    ports:
-      - "8000:8000"  # Expose API server port
+    # Port removed - only accessible through API Gateway
     depends_on:
       postgres_post_bot:
         condition: service_healthy
@@ -313,38 +342,6 @@ services:
       # JWT Secret
       SECRET_BOT_POST_GENERATOR_KEY: ${SECRET_BOT_POST_GENERATOR_KEY}
       POST_GENERATOR_BOT_JWT_SECRET: ${POST_GENERATOR_BOT_JWT_SECRET}
-
-      # Другие настройки
-      ENVIRONMENT: ${ENVIRONMENT}
-      DEBUG: ${DEBUG}
-
-  # ---------------------------------------------------------------------------
-  # AI CHATBOT SERVICE (with hot reload)
-  # ---------------------------------------------------------------------------
-  ai_chatbot_service:
-    build:
-      context: ../ai_chatbots_service
-      dockerfile: Dockerfile.dev
-    container_name: ai_chatbot_service_dev
-    command: ["python", "watch_main.py"]
-    restart: unless-stopped
-    volumes:
-      # Mount source code for hot reload
-      - ../ai_chatbots_service:/app
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - rabbitmq_net
-    environment:
-      # AI настройки
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-
-      # RabbitMQ
-      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
-      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
-      RABBITMQ_QUEUE_NAME: ${AI_CHAT_BOT_QUEUE_NAME}
-      PYTHONUNBUFFERED: 1
 
       # Другие настройки
       ENVIRONMENT: ${ENVIRONMENT}
@@ -383,6 +380,9 @@ services:
       DB_NAME: ${POST_GENERATOR_DB_NAME}
       PYTHONUNBUFFERED: 1
 
+      # Service URLs
+      POST_GENERATOR_BOT_URL: http://post_generator_bot_api:8000
+
       # RabbitMQ
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
       RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
@@ -394,6 +394,79 @@ services:
       RPC_AUCTION_API_URL: auction_api_service:50051
       RCP_CALCULATOR_URL: calculator_service:50052
       RPC_CHAT_BOT_URL: ${RPC_CHAT_BOT_URL}
+
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
+  # ---------------------------------------------------------------------------
+  # POST GENERATOR SERVICE API SERVER (with hot reload)
+  # ---------------------------------------------------------------------------
+  post_generator_service_api:
+    build:
+      context: ../post_generator_service
+      dockerfile: Dockerfile.dev
+    container_name: post_generator_service_api_dev
+    command: ["python", "watch_api_server.py"]
+    restart: unless-stopped
+    volumes:
+      # Mount source code for hot reload
+      - ../post_generator_service:/app
+    # Port removed - only accessible through API Gateway
+    depends_on:
+      postgres_post_service:
+        condition: service_healthy
+    networks:
+      - post_generator_service_net
+      - internal_net
+    environment:
+      # База данных
+      DB_HOST: postgres_post_service
+      DB_PORT: 5432
+      DB_USER: ${POST_GENERATOR_DB_USER}
+      DB_PASS: ${POST_GENERATOR_DB_PASS}
+      DB_NAME: ${POST_GENERATOR_DB_NAME}
+      PYTHONUNBUFFERED: 1
+
+      # Service URLs
+      POST_GENERATOR_BOT_URL: http://post_generator_bot_api:8000
+
+      # gRPC
+      RPC_AUCTION_API_URL: auction_api_service:50051
+      RCP_CALCULATOR_URL: calculator_service:50052
+      RPC_CHAT_BOT_URL: ${RPC_CHAT_BOT_URL}
+
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
+  # ---------------------------------------------------------------------------
+  # AI CHATBOT SERVICE (with hot reload)
+  # ---------------------------------------------------------------------------
+  ai_chatbot_service:
+    build:
+      context: ../ai_chatbots_service
+      dockerfile: Dockerfile.dev
+    container_name: ai_chatbot_service_dev
+    command: ["python", "watch_main.py"]
+    restart: unless-stopped
+    volumes:
+      # Mount source code for hot reload
+      - ../ai_chatbots_service:/app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - rabbitmq_net
+    environment:
+      # AI настройки
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+      # RabbitMQ
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
+      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME}
+      RABBITMQ_QUEUE_NAME: ${AI_CHAT_BOT_QUEUE_NAME}
+      PYTHONUNBUFFERED: 1
 
       # Другие настройки
       ENVIRONMENT: ${ENVIRONMENT}
