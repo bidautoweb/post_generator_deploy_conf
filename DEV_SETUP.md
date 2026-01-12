@@ -29,6 +29,7 @@ Make sure you have access to the Infisical project and the `dev` environment is 
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHANNEL_ID`
 - `SECRET_BOT_POST_GENERATOR_KEY`
+- `POST_GENERATOR_BOT_JWT_SECRET`
 - Database credentials (`*_DB_USER`, `*_DB_PASS`, `*_DB_NAME`)
 - RabbitMQ credentials (`RABBITMQ_USER`, `RABBITMQ_PASSWORD`)
 - Queue names (`*_QUEUE_NAME`, `RABBITMQ_EXCHANGE_NAME`)

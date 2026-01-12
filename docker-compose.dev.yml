@@ -281,6 +281,44 @@ services:
       DEBUG: ${DEBUG}
 
   # ---------------------------------------------------------------------------
+  # POST GENERATOR BOT API SERVER (with hot reload)
+  # ---------------------------------------------------------------------------
+  post_generator_bot_api:
+    build:
+      context: ../post_generator_bot
+      dockerfile: Dockerfile.dev
+    container_name: post_generator_bot_api_dev
+    command: ["python", "watch_api_server.py"]
+    restart: unless-stopped
+    volumes:
+      # Mount source code for hot reload
+      - ../post_generator_bot:/app
+    ports:
+      - "8000:8000"  # Expose API server port
+    depends_on:
+      postgres_post_bot:
+        condition: service_healthy
+    networks:
+      - post_generator_bot_net
+      - internal_net
+    environment:
+      # База данных
+      DB_HOST: postgres_post_bot
+      DB_PORT: 5432
+      DB_USER: ${POST_GENERATOR_BOT_DB_USER}
+      DB_PASS: ${POST_GENERATOR_BOT_DB_PASS}
+      DB_NAME: ${POST_GENERATOR_BOT_DB_NAME}
+      PYTHONUNBUFFERED: 1
+
+      # JWT Secret
+      SECRET_BOT_POST_GENERATOR_KEY: ${SECRET_BOT_POST_GENERATOR_KEY}
+      POST_GENERATOR_BOT_JWT_SECRET: ${POST_GENERATOR_BOT_JWT_SECRET}
+
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
+  # ---------------------------------------------------------------------------
   # AI CHATBOT SERVICE (with hot reload)
   # ---------------------------------------------------------------------------
   ai_chatbot_service:

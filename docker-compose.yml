@@ -262,6 +262,39 @@ services:
       DEBUG: ${DEBUG}
 
   # ---------------------------------------------------------------------------
+  # POST GENERATOR BOT API SERVER
+  # ---------------------------------------------------------------------------
+  post_generator_bot_api:
+    image: ivanskrb21/bidauto_post_generator_bot:latest
+    container_name: post_generator_bot_api
+    command: ["python", "start_api_server.py"]
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # Expose API server port
+    depends_on:
+      postgres_post_bot:
+        condition: service_healthy
+    networks:
+      - post_generator_bot_net
+      - internal_net
+    environment:
+      # База данных
+      DB_HOST: postgres_post_bot
+      DB_PORT: 5432
+      DB_USER: ${POST_GENERATOR_BOT_DB_USER}
+      DB_PASS: ${POST_GENERATOR_BOT_DB_PASS}
+      DB_NAME: ${POST_GENERATOR_BOT_DB_NAME}
+      PYTHONUNBUFFERED: 1
+
+      # JWT Secret
+      SECRET_BOT_POST_GENERATOR_KEY: ${SECRET_BOT_POST_GENERATOR_KEY}
+      POST_GENERATOR_BOT_JWT_SECRET: ${POST_GENERATOR_BOT_JWT_SECRET}
+
+      # Другие настройки
+      ENVIRONMENT: ${ENVIRONMENT}
+      DEBUG: ${DEBUG}
+
+  # ---------------------------------------------------------------------------
   # AI CHATBOT SERVICE
   # ---------------------------------------------------------------------------
   ai_chatbot_service:
