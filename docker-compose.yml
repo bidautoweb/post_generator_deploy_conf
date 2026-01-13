@@ -66,7 +66,8 @@ services:
     container_name: api_gateway
     restart: unless-stopped
     ports:
-      - "8080:80" # Main API Gateway port
+      - "80:80" # HTTP
+      - "443:443" # HTTPS
     depends_on:
       - post_generator_bot_api
       - post_generator_service_api
@@ -592,8 +593,15 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
       RABBITMQ_DEFAULT_VHOST: /
     healthcheck:
-      <<: *healthcheck
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+      test:
+        [
+          "CMD-SHELL",
+          "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_port_connectivity && rabbitmq-diagnostics -q check_virtual_hosts && rabbitmq-diagnostics -q check_local_alarms",
+        ]
 
   # =============================================================================
   # ADMIN TOOLS
