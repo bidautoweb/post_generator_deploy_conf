@@ -68,6 +68,9 @@ services:
     ports:
       - "80:80" # HTTP
       - "443:443" # HTTPS
+    volumes:
+      - /home/root/ssl/origin_cert.pem:/etc/nginx/ssl/origin_cert.pem:ro
+      - /home/root/ssl/origin_key.key:/etc/nginx/ssl/origin_key.key:ro
     depends_on:
       - post_generator_bot_api
       - post_generator_service_api
@@ -75,17 +78,17 @@ services:
       - internal_net
       - post_generator_bot_net
       - post_generator_service_net
-    # healthcheck:
-    #   <<: *healthcheck
-    #   test:
-    #     [
-    #       "CMD",
-    #       "wget",
-    #       "--no-verbose",
-    #       "--tries=1",
-    #       "--spider",
-    #       "http://localhost/health",
-    #     ]
+    healthcheck:
+      <<: *healthcheck
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health",
+        ]
 
   # ---------------------------------------------------------------------------
   # AUCTION API SERVICE
